@@ -3,8 +3,6 @@ version: "3.3"
 services:
   frontend:
     image: taskingai/taskingai-console:v0.2.2
-    expose:
-    - 8080
     depends_on:
       - backend-web
       - backend-api
@@ -79,3 +77,16 @@ services:
       timeout: 5s
       retries: 10
     restart: always
+
+  nginx:
+    image: nginx:1.24
+    expose:
+      - "8080:80"
+      # edit this to change the port, for example to "8080:80" to use port 8080
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./data/nginx_cache:/var/cache/nginx
+    depends_on:
+      - frontend
+      - backend-web
+      - backend-api
