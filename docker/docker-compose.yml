@@ -3,11 +3,11 @@ version: "3.3"
 services:
   frontend:
     image: taskingai/taskingai-console:v0.2.2
+    expose:
+    - 8080
     depends_on:
       - backend-web
       - backend-api
-      expose:
-      - 8080
 
   backend-inference:
     image: taskingai/taskingai-inference:v0.2.11
