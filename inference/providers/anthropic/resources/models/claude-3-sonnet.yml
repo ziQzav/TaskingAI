@@ -6,6 +6,7 @@ description: "i18n:claude_3_sonnet_description"
 default_endpoint_url: https://api.anthropic.com/v1/messages
 
 properties:
+  vision: true
   function_call: true
   streaming: true
   input_token_limit: 200000
@@ -16,6 +17,11 @@ config_schemas:
   - config_id: top_p
   - config_id: top_k
   - config_id: max_tokens
+    type: int
+    default: 4096
+    min: 1
+    max: 4096
+    step: 1
   - config_id: stop
   - config_id: response_format
 

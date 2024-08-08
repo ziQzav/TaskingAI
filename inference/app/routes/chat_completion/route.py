@@ -19,6 +19,7 @@ from app.models import (
     ModelSchema,
     BaseModelProperties,
 )
+from config import CONFIG
 from .schema import *
 
 router = APIRouter()
@@ -52,7 +53,6 @@ async def chat_completion(
 
         try:
             response = await model.chat_completion(
-                model_schema=model_schema,
                 provider_model_id=provider_model_id,
                 messages=messages,
                 credentials=credentials,
@@ -61,6 +61,7 @@ async def chat_completion(
                 functions=functions,
                 proxy=proxy,
                 custom_headers=custom_headers,
+                model_schema=model_schema,
             )
             if i > 0:
                 response.fallback_index = i - 1
@@ -125,7 +126,6 @@ async def chat_completion_stream(
 
         try:
             async for response in model.chat_completion_stream(
-                model_schema=model_schema,
                 provider_model_id=provider_model_id,
                 messages=messages,
                 credentials=credentials,
@@ -134,6 +134,7 @@ async def chat_completion_stream(
                 functions=functions,
                 proxy=proxy,
                 custom_headers=custom_headers,
+                model_schema=model_schema,
             ):
                 if isinstance(response, ChatCompletion):
                     if i:
@@ -209,6 +210,12 @@ async def api_chat_completion(
             raise_http_error(
                 ErrorCode.REQUEST_VALIDATION_ERROR, "Model type should be chat_completion, but got " + model_type
             )
+
+    # check if proxy is blacklisted
+    if data.proxy:
+        for url in CONFIG.PROVIDER_URL_BLACK_LIST:
+            if url in data.proxy:
+                raise_http_error(ErrorCode.REQUEST_VALIDATION_ERROR, f"Invalid provider url: {url}")
 
     if data.stream:
 

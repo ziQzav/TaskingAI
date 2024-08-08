@@ -1,4 +1,7 @@
 from typing import Tuple, Dict
+
+from app.models import ModelSchema
+from app.utils.utils import fetch_image_format, get_image_base64_string
 from provider_dependency.chat_completion import *
 
 logger = logging.getLogger(__name__)
@@ -10,11 +13,43 @@ def _extract_system_message(messages: List[ChatCompletionMessage]) -> Tuple[Opti
     return None, messages
 
 
-def _build_anthropic_message(message: ChatCompletionMessage):
+async def split_markdown_to_objects_preserve_order(markdown_content):
+    import re
+
+    # Define regex pattern for extracting text and images
+    pattern = re.compile(r"(!\[.*?\]\(.*?\))|([^!]+)", re.MULTILINE)
+
+    # Find all matches
+    matches = pattern.findall(markdown_content)
+
+    # Split the content into a list of objects
+    result = []
+
+    for match in matches:
+        if match[0]:  # This is an image
+            image_url = re.findall(r"!\[.*?\]\((.*?)\)", match[0])[0]
+            image_format = await fetch_image_format(image_url)
+            base64_string = await get_image_base64_string(image_url)
+            result.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": f"image/{image_format}", "data": base64_string},
+                }
+            )
+        elif match[1].strip():  # This is text
+            result.append({"type": "text", "text": match[1].strip()})
+
+    return result
+
+
+async def _build_anthropic_message(message: ChatCompletionMessage, should_send_image_if_possible: bool = False):
     formatted_message = {"role": message.role.name, "content": []}
     if message.role == ChatCompletionRole.user:
         if isinstance(message.content, str):
-            formatted_message["content"].append({"type": "text", "text": str(message.content)})
+            if should_send_image_if_possible:
+                formatted_message["content"] = await split_markdown_to_objects_preserve_order(message.content)
+            else:
+                formatted_message["content"].append({"type": "text", "text": str(message.content)})
         elif isinstance(message.content, List):
             check_valid_list_content(message.content)
             for content in message.content:
@@ -73,7 +108,7 @@ def _build_anthropic_header(credentials: ProviderCredentials):
     }
 
 
-def _build_anthropic_chat_completion_payload(
+async def _build_anthropic_chat_completion_payload(
     messages: List[ChatCompletionMessage],
     stream: bool,
     provider_model_id: str,
@@ -82,7 +117,10 @@ def _build_anthropic_chat_completion_payload(
 ):
     # Convert ChatCompletionMessages to the required format
     system_message, other_messages = _extract_system_message(messages)
-    formatted_messages = [_build_anthropic_message(msg) for msg in other_messages]
+    formatted_messages = []
+    for message in other_messages[:-1]:
+        formatted_messages.append(await _build_anthropic_message(message, should_send_image_if_possible=False))
+    formatted_messages.append(await _build_anthropic_message(messages[-1], should_send_image_if_possible=True))
     payload = {
         "messages": formatted_messages,
         "model": provider_model_id,
@@ -136,7 +174,7 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
 
     # ------------------- prepare request data -------------------
 
-    def prepare_request(
+    async def prepare_request(
         self,
         stream: bool,
         provider_model_id: str,
@@ -145,11 +183,14 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
         configs: ChatCompletionModelConfiguration,
         function_call: Optional[str] = None,
         functions: Optional[List[ChatCompletionFunction]] = None,
+        model_schema: ModelSchema = None,
     ) -> Tuple[str, Dict, Dict]:
         # todo accept user's api_url
         api_url = f"https://api.anthropic.com/v1/messages"
         headers = _build_anthropic_header(credentials)
-        payload = _build_anthropic_chat_completion_payload(messages, stream, provider_model_id, configs, functions)
+        payload = await _build_anthropic_chat_completion_payload(
+            messages, stream, provider_model_id, configs, functions
+        )
         return api_url, headers, payload
 
     # ------------------- handle non-stream chat completion response -------------------
@@ -158,6 +199,10 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
         if response_data.get("content") is None:
             return None
         return response_data
+
+    def extract_usage_data(self, response_data: Dict, **kwargs) -> Tuple[Optional[int], Optional[int]]:
+        usage = response_data.get("usage") if response_data else None
+        return usage.get("input_tokens", None), usage.get("output_tokens", None)
 
     def extract_text_content(self, data: Dict, **kwargs) -> Optional[str]:
         message_data = data.get("content")
@@ -197,9 +242,25 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
             raise_provider_api_error(sse_data["error"])
 
     def stream_extract_chunk_data(self, sse_data: Dict, **kwargs) -> Optional[Dict]:
+        if sse_data.get("content_block", None):
+            return sse_data
         if sse_data.get("delta") is None:
             return None
         return sse_data
+
+    def stream_extract_usage_data(
+        self, sse_data: Dict, input_tokens: int, output_tokens: int, **kwargs
+    ) -> Tuple[int, int]:
+        if sse_data and sse_data.get("usage"):
+            usage = sse_data.get("usage")
+            input_tokens = max(input_tokens or 0, usage.get("input_tokens", 0))
+            output_tokens = max(output_tokens or 0, usage.get("output_tokens", 0))
+        else:
+            sse_core_data = sse_data.get("message")
+            usage = sse_core_data.get("usage") if sse_core_data else {}
+            input_tokens = max(input_tokens or 0, usage.get("input_tokens", 0))
+            output_tokens = max(output_tokens or 0, usage.get("output_tokens", 0))
+        return input_tokens, output_tokens
 
     def stream_extract_chunk(
         self, index: int, chunk_data: Dict, text_content: str, **kwargs
@@ -227,4 +288,25 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
     def stream_handle_function_calls(
         self, chunk_data: Dict, function_calls_content: ChatCompletionFunctionCallsContent, **kwargs
     ) -> Optional[ChatCompletionFunctionCallsContent]:
-        pass
+        tool_call_function = chunk_data.get("content_block", {})
+        if tool_call_function and tool_call_function.get("type") == "tool_use":
+            toll_call_index = chunk_data["index"] - 1
+
+            function_calls_content.arguments_strs.append("")
+            function_calls_content.names.append(tool_call_function["name"])
+            function_calls_content.index = toll_call_index
+            return function_calls_content
+
+        delta = chunk_data.get("delta", {})
+        if delta and delta.get("type") == "input_json_delta":
+            toll_call_index = chunk_data["index"] - 1
+            tool_call_function = delta
+
+            if toll_call_index == function_calls_content.index:
+                # append to the current function call argument string
+                function_calls_content.arguments_strs[function_calls_content.index] += tool_call_function[
+                    "partial_json"
+                ]
+            return function_calls_content
+
+        return None

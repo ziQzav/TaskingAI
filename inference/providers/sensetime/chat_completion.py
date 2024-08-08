@@ -1,3 +1,4 @@
+from app.models import ModelSchema
 from provider_dependency.chat_completion import *
 from .utils import build_sensetime_header
 from typing import Tuple, Dict
@@ -101,7 +102,7 @@ class SensetimeChatCompletionModel(BaseChatCompletionModel):
 
     # ------------------- prepare request data -------------------
 
-    def prepare_request(
+    async def prepare_request(
         self,
         stream: bool,
         provider_model_id: str,
@@ -110,6 +111,7 @@ class SensetimeChatCompletionModel(BaseChatCompletionModel):
         configs: ChatCompletionModelConfiguration,
         function_call: Optional[str] = None,
         functions: Optional[List[ChatCompletionFunction]] = None,
+        model_schema: ModelSchema = None,
     ) -> Tuple[str, Dict, Dict]:
         # todo accept user's api_url
         api_url = "https://api.sensenova.cn/v1/llm/chat-completions"
@@ -125,6 +127,11 @@ class SensetimeChatCompletionModel(BaseChatCompletionModel):
         if not response_data.get("data"):
             return None
         return response_data["data"]["choices"][0]
+
+    def extract_usage_data(self, response_data: Dict, **kwargs) -> Tuple[Optional[int], Optional[int]]:
+        data = response_data.get("data") if response_data else {}
+        usage = data.get("usage") if data else {}
+        return usage.get("prompt_tokens", None), usage.get("completion_tokens", None)
 
     def extract_text_content(self, data: Dict, **kwargs) -> Optional[str]:
         message_data = data.get("message") if data else None
@@ -169,6 +176,16 @@ class SensetimeChatCompletionModel(BaseChatCompletionModel):
         if not data.get("choices"):
             return None
         return data["choices"][0]
+
+    def stream_extract_usage_data(
+        self, sse_data: Dict, input_tokens: int, output_tokens: int, **kwargs
+    ) -> Tuple[int, int]:
+        data = sse_data.get("data") if sse_data else {}
+        usage = data.get("usage") if sse_data else None
+        if usage is not None:
+            input_tokens = max(input_tokens or 0, usage.get("prompt_tokens", 0))
+            output_tokens = max(output_tokens or 0, usage.get("completion_tokens", 0))
+        return input_tokens, output_tokens
 
     def stream_extract_chunk(
         self, index: int, chunk_data: Dict, text_content: str, **kwargs

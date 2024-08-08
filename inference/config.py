@@ -52,7 +52,7 @@ class Config:
 
     def __init__(self):
         # version
-        self.VERSION = "v0.2.14"
+        self.VERSION = "v0.2.18"
 
         # mode
         self.MODE = load_str_env("MODE", required=True)
@@ -91,6 +91,8 @@ class Config:
         else:
             self.PROVIDER_URL_BLACK_LIST = self.PROVIDER_URL_BLACK_LIST.split(",")
             self.PROVIDER_URL_BLACK_LIST = [url.strip() for url in self.PROVIDER_URL_BLACK_LIST]
+
+        self.PATH_TO_VOLUME = load_str_env("PATH_TO_VOLUME")
 
 
 CONFIG = Config()

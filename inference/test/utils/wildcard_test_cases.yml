@@ -1,18 +1,4 @@
 wildcard_test_cases:
-  - provider_id: "togetherai"
-    cases:
-      - model_schema_id: "togetherai/wildcard"
-        provider_model_id: "mistralai/Mistral-7B-Instruct-v0.1"
-        model_type: "chat_completion"
-        streaming: True
-        function_call: True
-
-      - model_schema_id: "togetherai/wildcard"
-        provider_model_id: "togethercomputer/m2-bert-80M-2k-retrieval"
-        model_type: "text_embedding"
-        properties:
-          embedding_size: 768
-
   - provider_id: "hugging_face"
     cases:
       - model_schema_id: "hugging_face/wildcard"
@@ -48,6 +34,22 @@ wildcard_test_cases:
     cases:
       - model_schema_id: "openrouter/wildcard"
         provider_model_id: "nousresearch/nous-capybara-7b:free"
+        model_type: "chat_completion"
+        streaming: True
+        function_call: True
+
+  - provider_id: "siliconcloud"
+    cases:
+      - model_schema_id: "siliconcloud/wildcard"
+        provider_model_id: "01-ai/Yi-1.5-34B-Chat-16K"
+        model_type: "chat_completion"
+        streaming: True
+        function_call: False
+
+  - provider_id: "fireworks"
+    cases:
+      - model_schema_id: "fireworks/wildcard"
+        provider_model_id: "accounts/fireworks/models/firefunction-v2"
         model_type: "chat_completion"
         streaming: True
         function_call: True

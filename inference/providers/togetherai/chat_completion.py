@@ -1,4 +1,6 @@
 from typing import Tuple, Dict
+
+from app.models import ModelSchema
 from provider_dependency.chat_completion import *
 from .utils import *
 
@@ -66,7 +68,9 @@ def _build_togetherai_chat_completion_payload(
         if configs.response_format == "json_object":
 
             if payload["messages"][0]["role"] == "system":
-                payload["messages"][0]["content"] = f"{payload['messages'][0]['content']} You are designed to output JSON."
+                payload["messages"][0][
+                    "content"
+                ] = f"{payload['messages'][0]['content']} You are designed to output JSON."
             else:
                 payload["messages"].insert(0, {"role": "system", "content": "You are designed to output JSON."})
 
@@ -86,7 +90,7 @@ class TogetheraiChatCompletionModel(BaseChatCompletionModel):
 
     # ------------------- prepare request data -------------------
 
-    def prepare_request(
+    async def prepare_request(
         self,
         stream: bool,
         provider_model_id: str,
@@ -95,6 +99,7 @@ class TogetheraiChatCompletionModel(BaseChatCompletionModel):
         configs: ChatCompletionModelConfiguration,
         function_call: Optional[str] = None,
         functions: Optional[List[ChatCompletionFunction]] = None,
+        model_schema: ModelSchema = None,
     ) -> Tuple[str, Dict, Dict]:
         # todo accept user's api_url
         api_url = "https://api.together.xyz/v1/chat/completions"
@@ -110,6 +115,10 @@ class TogetheraiChatCompletionModel(BaseChatCompletionModel):
         if not response_data.get("choices"):
             return None
         return response_data["choices"][0]
+
+    def extract_usage_data(self, response_data: Dict, **kwargs) -> Tuple[Optional[int], Optional[int]]:
+        usage = response_data.get("usage") if response_data else {}
+        return usage.get("prompt_tokens", None), usage.get("completion_tokens", None)
 
     def extract_text_content(self, data: Dict, **kwargs) -> Optional[str]:
         message_data = data.get("message") if data else None
@@ -154,6 +163,12 @@ class TogetheraiChatCompletionModel(BaseChatCompletionModel):
         if not sse_data.get("choices"):
             return None
         return sse_data["choices"][0]
+
+    def stream_extract_usage_data(
+        self, sse_data: Dict, input_tokens: int, output_tokens: int, **kwargs
+    ) -> Tuple[int, int]:
+        # todo the stream mode of TogetherAI currently does not provide the token usage parameter.
+        return None, None
 
     def stream_extract_chunk(
         self, index: int, chunk_data: Dict, text_content: str, **kwargs
